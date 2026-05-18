@@ -1,3 +1,5 @@
+#ifndef MATRIX_H
+#define MATRIX_H
 #include <cstdlib>
 #include <vector>
 #include <iostream>
@@ -6,8 +8,7 @@
 
 template <typename T>
 class Matrix {
-	typedef std::vector<T> Row;
-	std::vector<Row> Data;
+	std::vector<T> Data;
 
 public:
 	unsigned int rows = 0;
@@ -17,17 +18,12 @@ public:
 		this->rows = rows;
 		this->cols = cols;
 		// Asignar memoria a la matriz
-		(this->Data).resize(rows);
-		for (int i = 0; i < rows; i++) ((this->Data)[i]).resize(cols);
+		(this->Data).resize(rows*cols);
 	}
 
-	// Acceso a fila
-	Row& operator[](unsigned int row) {
-		return Data[row];
-	}
 	// Acceso a elemento
 	T& operator()(unsigned int row, unsigned int col) {
-		return Data[row][col];
+		return Data[row * cols + col];
 	}
 
 	// Debug
@@ -92,9 +88,28 @@ template <typename T>
 void matrix_sub(Matrix<T>& destination, Matrix<T>& mat_A, Matrix<T>& mat_B) {
 	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols)
 		throw std::runtime_error("Subtraction error: Mismatch in matrix dimensions");
-	for (int i = 0; i < mat_A.rows; i++) {
-		for (int j = 0; j < mat_A.cols; j++) {
+	for (unsigned int i = 0; i < mat_A.rows; i++) {
+		for (unsigned int j = 0; j < mat_A.cols; j++) {
 			destination(i,j) = mat_A(i,j) - mat_B(i,j);
+		}
+	}
+}
+
+template <typename T>
+void matrix_multRowCol(Matrix<T>& destination, Matrix<T>& A, Matrix<T>& B) {
+	if (A.cols != B.rows)
+		throw std::runtime_error("RowCol multiplication: Mismatch in matrix dimensions. Ensure A's cols == B's rows");
+	else if (destination.rows != A.rows || destination.cols != B.cols)
+		throw std::runtime_error("RowCol multiplication: Mismatch in expected dimensions of output variable.");
+	else {
+		for (size_t i = 0; i < destination.rows; i++) {
+			for (size_t j = 0; j < destination.cols; j++) {
+				T result = (T) 0;
+				for (size_t k = 0; k < A.cols; k++) {
+					result += A(i,k) * B(k,j);
+				}
+				destination(i,j) = result;
+			}
 		}
 	}
 }
@@ -118,3 +133,5 @@ Matrix<T>& matrix_block_copy(Matrix<T>& dest, ShallowPartition<T>& source_part, 
 	}
 	return dest;
 }
+
+#endif
