@@ -18,7 +18,7 @@ public:
 		this->cols = cols;
 		// Asignar memoria a la matriz
 		(this->Data).resize(rows);
-		for (int i = 0; i < cols; i++) ((this->Data)[i]).resize(cols);
+		for (int i = 0; i < rows; i++) ((this->Data)[i]).resize(cols);
 	}
 
 	// Acceso a fila
