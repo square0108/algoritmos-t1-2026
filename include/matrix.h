@@ -47,23 +47,23 @@ template <typename T>
 class ShallowPartition {
 	public:
 		Matrix<T>* original_mat = nullptr;
-		std::pair<unsigned int, unsigned int> origin_position;
+		std::pair<unsigned int, unsigned int> original_position;
 		unsigned int sub_rows = 0;
 		unsigned int sub_cols = 0;
 	
-		ShallowPartition(Matrix<T>& original_mat, unsigned int sub_rows, unsigned int sub_cols, std::pair<unsigned int, unsigned int> origin_position) {
-			if (origin_position.first + sub_rows > original_mat.rows || origin_position.second + sub_cols > original_mat.cols) {
+		ShallowPartition(Matrix<T>& original_mat, unsigned int sub_rows, unsigned int sub_cols, std::pair<unsigned int, unsigned int> original_position) {
+			if (original_position.first + sub_rows > original_mat.rows || original_position.second + sub_cols > original_mat.cols) {
 				throw std::runtime_error("Partition failed: Block exceeds original matrix dimensions");
 			}
 			this->original_mat = &original_mat;
 			this->sub_rows = sub_rows;
 			this->sub_cols = sub_cols;
-			this->origin_position = origin_position;
+			this->original_position = original_position;
 		}
 
-		// Acceso a elemento de matriz original, pero con origin_position siendo el (0,0).
+		// Acceso a elemento de matriz original, pero con original_position siendo el (0,0).
 		T& operator()(unsigned int row, unsigned int col) {
-			return (*original_mat)(origin_position.first + row, origin_position.second + col);
+			return (*original_mat)(original_position.first + row, original_position.second + col);
 		}
 		// Debug
 		void print_contents() {
