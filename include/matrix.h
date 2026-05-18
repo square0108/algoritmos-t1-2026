@@ -41,7 +41,6 @@ public:
 	}
 };
 
-
 template <typename T>
 // "Virtual view" of a matrix block/partition inside of a larger matrix, `original_mat`
 class ShallowPartition {
@@ -78,28 +77,26 @@ class ShallowPartition {
 
 // Result = Mat_A + Mat_B
 template <typename T>
-Matrix<T>& matrix_sum(Matrix<T>& result, Matrix<T>& mat_A, Matrix<T>& mat_B) {
-	unsigned int rows = mat_A.rows;
-	unsigned int cols = mat_A.cols;
-	for (int i = 0; i < rows; i++) {
-		for (int j = 0; j < cols; j++) {
-			result[i][j] = mat_A[i][j] + mat_B[i][j];
+void matrix_sum(Matrix<T>& destination, Matrix<T>& mat_A, Matrix<T>& mat_B) {
+	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols)
+		throw std::runtime_error("Sum error: Mismatch in matrix dimensions");
+	for (int i = 0; i < mat_A.rows; i++) {
+		for (int j = 0; j < mat_A.cols; j++) {
+			destination(i,j) = mat_A(i,j) + mat_B(i,j);
 		}
 	}
-	return result;
 }
 
 // Result = Mat_A - Mat_B
 template <typename T>
-Matrix<T>& matrix_sub(Matrix<T>& result, Matrix<T>& mat_A, Matrix<T>& mat_B) {
-	unsigned int rows = mat_A.rows;
-	unsigned int cols = mat_A.cols;
-	for (int i = 0; i < rows; i++) {
-		for (int j = 0; j < cols; j++) {
-			result[i][j] = mat_A[i][j] - mat_B[i][j];
+void matrix_sub(Matrix<T>& destination, Matrix<T>& mat_A, Matrix<T>& mat_B) {
+	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols)
+		throw std::runtime_error("Subtraction error: Mismatch in matrix dimensions");
+	for (int i = 0; i < mat_A.rows; i++) {
+		for (int j = 0; j < mat_A.cols; j++) {
+			destination(i,j) = mat_A(i,j) - mat_B(i,j);
 		}
 	}
-	return result;
 }
 
 // Copy a nxm block from the source partition into a destination matrix, and also specifying which position (i,j) to start copying on (left to right, top to bottom).
