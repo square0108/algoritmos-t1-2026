@@ -10,7 +10,7 @@ int main(int argc, char* argv[]) {
 		exit(-1);
 	}
 	const std::string mult_type = argv[1];
-	const unsigned int MATRIX_SIZE = atoi(argv[2]);
+	const size_t MATRIX_SIZE = atoi(argv[2]);
 	/*
 	std::cout << "Partition test" << std::endl;
 	ShallowPartition<int> part(*A,4,4,std::make_pair(4,4));
@@ -29,10 +29,9 @@ int main(int argc, char* argv[]) {
 			(*E)(i,j) = i+j+1;
 		}
 	}
-	if (mult_type == "strassen") strassen_mult(*F,*D,*E);
-	else if (mult_type == "rowcol") matrix_multRowCol(*F,*D,*E);
+	if (mult_type == "strassen") strassen_mult<int>(*F,*D,*E);
+	else if (mult_type == "rowcol") matrix_multRowCol<int>(*F,*D,*E);
 	std::cout << "...success!" << std::endl;
-	F->print_contents();
 	delete D; delete E; delete F;
 	return 0;
 }

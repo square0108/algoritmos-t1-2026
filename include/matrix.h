@@ -5,50 +5,24 @@
 #include <iostream>
 #include <utility>
 #include <memory>
+#include <type_traits>
 
-/* Visión:
-*	- Matrix es una matriz "común" de toda la vida
-* - VirtualPartition es una submatriz que en vez de crear otro container,
-* 	utiliza el puntero de su matriz padre para acceder datos
-*	- Ambas heredan de MatrixOperand para que las operaciones de suma, resta y multiplicación
-* 	acepten objetos MatrixOperand y traten a matrices y particiones de igual forma.
-*	Esto significa que escrituras a VirtualPartition en realidad escriben directo a su matriz padre, y
-* resulta en menos pasos de copia. Asumí que algo así era a lo que hacía referencia el CLRS con usar
-* "index ranges" para reducir un poco el trabajo Theta(n^2)
-*/
-
-template <typename T>
-class MatrixOperand {
-protected:
+template <typename DataType>
+struct Matrix {
+	std::vector<DataType> Data;
 	size_t rows;
 	size_t cols;
-public:
-	virtual ~MatrixOperand() = default;
-	virtual T& operator()(size_t row, size_t col) = 0;
-	size_t get_rows() {
-		return rows;
-	}
-	size_t get_cols() {
-		return cols;
-	}
-};
 
-template <typename T>
-class Matrix : public MatrixOperand<T> {
-	std::vector<T> Data;
-public:
 	Matrix(size_t rows, size_t cols) {
 		this->rows = rows;
 		this->cols = cols;
 		// Asignar memoria a la matriz
 		(this->Data).resize(rows*cols);
 	}
-
 	// Acceso a elemento
-	T& operator()(size_t row, size_t col) override {
+	DataType& operator()(size_t row, size_t col) {
 		return Data[row * this->cols + col];
 	}
-
 	// Debug
   void print_contents() {
 		for (int i = 0; i < this->rows; i++) {
@@ -60,37 +34,51 @@ public:
 	}
 };
 
-template <typename T>
-// "Virtual view" of a matrix block/partition inside of a larger matrix, `original_mat`
-class VirtualPartition : public MatrixOperand<T> {
-	private:
-		Matrix<T>* parent_mat = nullptr; // En vez de container Data, usar Data de matriz particionada
-		std::pair<size_t, size_t> partition_pos; // Posicion (0,0) de la submatriz dentro de la matriz padre.
-	public:
-		VirtualPartition(Matrix<T>& original_mat, size_t sub_rows, size_t sub_cols, std::pair<size_t, size_t> original_position) {
-			if (original_position.first + sub_rows > original_mat.get_rows() || original_position.second + sub_cols > original_mat.get_cols()) {
-				throw std::runtime_error("Partition failed: Block exceeds original matrix dimensions");
+template <typename DataType>
+/* Se comporta igual que una Matrix<DataType> en aritmética de matrices, pero para acceder a elementos, utiliza
+el miemrbo Data de la matriz que está particionando ("matriz padre")*/
+struct PartitionView {
+		Matrix<DataType>* parent_mat = nullptr;
+		std::pair<size_t, size_t> offset; // Posicion (0,0) de la submatriz dentro de la matriz padre.
+		size_t rows;
+		size_t cols;
+
+		template <typename MatrixType>
+		PartitionView(MatrixType& mat, size_t sub_rows, size_t sub_cols, std::pair<size_t, size_t> sub_offset) {
+			// Partición de otra partición
+			if constexpr (std::is_same_v<MatrixType, PartitionView<DataType>>) {
+				this->parent_mat = mat.parent_mat;
+				this->offset.first = mat.offset.first + sub_offset.first;
+				this->offset.second = mat.offset.second + sub_offset.second;
 			}
-			this->parent_mat = &original_mat;
+			// Partición de una matriz con data propia
+			else if constexpr (std::is_same_v<MatrixType, Matrix<DataType>>) {
+				this->parent_mat = &mat;
+				this->offset.first = sub_offset.first;
+				this->offset.second = sub_offset.second;
+			}
 			this->rows = sub_rows;
 			this->cols = sub_cols;
-			this->partition_pos = original_position;
+
+			// Error checking
+			if (sub_rows < 1 || sub_cols < 1) {
+				std::cerr << "Can't create a size 0 partition" << std::endl;
+				exit(-1);
+			}
+			if (sub_offset.first + sub_rows > parent_mat->rows || sub_offset.second + sub_cols > parent_mat->cols) {
+				std::cerr << "Partition exceeds matrix dimensions. Input: " 
+				<< sub_rows << ", " << sub_cols 
+				<< "; Matrix size: " 
+				<< parent_mat->rows << ", " << parent_mat->cols 
+				<< "; Offset pos: (" 
+				<< sub_offset.first << "," << sub_offset.second << ")" << std::endl;
+				throw std::runtime_error("Partition failed: Block exceeds original matrix dimensions");
+			}
 		}
+
 		// Acceso a elemento de matriz original, pero con partition_pos siendo el (0,0) de la partición.
-		T& operator()(size_t row, size_t col) override {
-			return (*parent_mat)(partition_pos.first + row, partition_pos.second + col);
-		}
-		size_t get_parent_rows() {
-			return parent_mat->get_rows();
-		}
-		size_t get_parent_cols() {
-			return parent_mat->get_cols();
-		}
-		Matrix<T>* get_parent_matrix() {
-			return parent_mat;
-		}
-		std::pair<size_t, size_t> get_pos_within_parent() {
-			return partition_pos;
+		DataType& operator()(size_t row, size_t col) {
+			return (*parent_mat)(offset.first + row, offset.second + col);
 		}
 		// Debug
 		void print_contents() {
@@ -104,40 +92,49 @@ class VirtualPartition : public MatrixOperand<T> {
 };
 
 // Result = Mat_A + Mat_B
-template <typename T>
-void matrix_sum(MatrixOperand<T>& destination, MatrixOperand<T>& mat_A, MatrixOperand<T>& mat_B) {
-	if (mat_A.get_rows() != mat_B.get_rows() || mat_A.get_cols() != mat_B.get_cols() || mat_A.get_rows() != destination.get_rows() || mat_A.get_cols() != destination.get_cols())
-		throw std::runtime_error("Sum error: Mismatch in matrix dimensions");
-	for (int i = 0; i < mat_A.get_rows(); i++) {
-		for (int j = 0; j < mat_A.get_cols(); j++) {
+template <typename DestType, typename MatA, typename MatB>
+void matrix_sum(DestType& destination, MatA& mat_A, MatB& mat_B) {
+	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols) {
+		std::cerr << ("Sum error: Mismatch in matrix dimensions");
+		exit(-1);
+	}
+	for (size_t i = 0; i < mat_A.rows; i++) {
+		for (size_t j = 0; j < mat_A.cols; j++) {
 			destination(i,j) = mat_A(i,j) + mat_B(i,j);
 		}
 	}
 }
 
 // Result = Mat_A - Mat_B
-template <typename T>
-void matrix_sub(MatrixOperand<T>& destination, MatrixOperand<T>& mat_A, MatrixOperand<T>& mat_B) {
-	if (mat_A.get_rows() != mat_B.get_rows() || mat_A.get_cols() != mat_B.get_cols() || mat_A.get_rows() != destination.get_rows() || mat_A.get_cols() != destination.get_cols())
-		throw std::runtime_error("Subtraction error: Mismatch in matrix dimensions");
-	for (unsigned int i = 0; i < mat_A.get_rows(); i++) {
-		for (unsigned int j = 0; j < mat_A.get_cols(); j++) {
+template <typename DestType, typename MatA, typename MatB>
+void matrix_sub(DestType& destination, MatA& mat_A, MatB& mat_B) {
+	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols) {
+		std::cerr << ("Subtraction error: Mismatch in matrix dimensions");
+		exit(-1);
+	}
+	for (size_t i = 0; i < mat_A.rows; i++) {
+		for (size_t j = 0; j < mat_A.cols; j++) {
 			destination(i,j) = mat_A(i,j) - mat_B(i,j);
 		}
 	}
 }
 
-template <typename T>
-void matrix_multRowCol(MatrixOperand<T>& destination, MatrixOperand<T>& A, MatrixOperand<T>& B) {
-	if (A.get_cols() != B.get_rows())
-		throw std::runtime_error("RowCol multiplication: Mismatch in matrix dimensions. Ensure A's cols == B's rows");
-	else if (destination.get_rows() != A.get_rows() || destination.get_cols() != B.get_cols())
-		throw std::runtime_error("RowCol multiplication: Mismatch in expected dimensions of output variable.");
-	else {
-		for (size_t i = 0; i < destination.get_rows(); i++) {
-			for (size_t j = 0; j < destination.get_cols(); j++) {
-				T result = (T) 0;
-				for (size_t k = 0; k < A.get_cols(); k++) {
+// Moving all this shit to templates cus fuck OOP
+template <typename DataType, typename DestType, typename MatA, typename MatB>
+void matrix_multRowCol(DestType& destination, MatA& A, MatB& B) {
+	if (A.cols != B.rows) {
+		std::cerr << ("RowCol multiplication: Mismatch in matrix dimensions. Ensure A's cols == B's rows");
+		exit(-1);
+	}
+	else if (destination.rows != A.rows || destination.cols != B.cols) {
+		std::cerr << ("RowCol multiplication: Mismatch in expected dimensions of output variable.");
+		exit(-1);
+	}
+	 else {
+		for (size_t i = 0; i < destination.rows; i++) {
+			for (size_t j = 0; j < destination.cols; j++) {
+				DataType result = (DataType) 0;
+				for (size_t k = 0; k < A.cols; k++) {
 					result += A(i,k) * B(k,j);
 				}
 				destination(i,j) = result;
@@ -148,14 +145,14 @@ void matrix_multRowCol(MatrixOperand<T>& destination, MatrixOperand<T>& A, Matri
 
 // Copy a nxm block from the source partition into a destination matrix, and also specifying which position (i,j) to start copying on (left to right, top to bottom).
 // The (nxm) block must fulfill the following conditions:
-// 1. n < dest_part.get_rows()
+// 1. n < dest_part.rows
 // 2. m < dest_part.cols
 /*
 template <typename T>
-Matrix<T>& matrix_block_copy(Matrix<T>& dest, ShallowPartition<T>& source_part, std::pair<unsigned int, unsigned int> dest_position) {
+Matrix<DataType>& matrix_block_copy(Matrix<DataType>& dest, ShallowPartition<DataType>& source_part, std::pair<unsigned int, unsigned int> dest_position) {
 	auto dest_row = dest_position.first;
 	auto dest_col = dest_position.second;
-	if (source_part.sub_rows + dest_row > dest.get_rows() || source_part.sub_cols + dest_col > dest.cols) 
+	if (source_part.sub_rows + dest_row > dest.rows || source_part.sub_cols + dest_col > dest.cols) 
 		throw std::runtime_error("Copy error: Destination cannot fit the source block");
 
 	// begin copy
