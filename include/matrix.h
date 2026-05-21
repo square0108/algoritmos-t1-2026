@@ -5,27 +5,24 @@
 #include <iostream>
 #include <utility>
 #include <memory>
+#include <type_traits>
 
-template <typename T>
-class Matrix {
-	std::vector<T> Data;
+template <typename DataType>
+struct Matrix {
+	std::vector<DataType> Data;
+	size_t rows;
+	size_t cols;
 
-public:
-	unsigned int rows = 0;
-	unsigned int cols = 0;
-
-	Matrix(unsigned int rows, unsigned int cols) {
+	Matrix(size_t rows, size_t cols) {
 		this->rows = rows;
 		this->cols = cols;
-		// Asignar memoria a la matriz
 		(this->Data).resize(rows*cols);
 	}
 
 	// Acceso a elemento
-	T& operator()(unsigned int row, unsigned int col) {
-		return Data[row * cols + col];
+	DataType& operator()(size_t row, size_t col) {
+		return Data[row * this->cols + col];
 	}
-
 	// Debug
   void print_contents() {
 		for (int i = 0; i < this->rows; i++) {
@@ -37,33 +34,57 @@ public:
 	}
 };
 
-template <typename T>
-// "Virtual view" of a matrix block/partition inside of a larger matrix, `original_mat`
-class ShallowPartition {
-	public:
-		Matrix<T>* original_mat = nullptr;
-		std::pair<unsigned int, unsigned int> original_position;
-		unsigned int sub_rows = 0;
-		unsigned int sub_cols = 0;
-	
-		ShallowPartition(Matrix<T>& original_mat, unsigned int sub_rows, unsigned int sub_cols, std::pair<unsigned int, unsigned int> original_position) {
-			if (original_position.first + sub_rows > original_mat.rows || original_position.second + sub_cols > original_mat.cols) {
-				throw std::runtime_error("Partition failed: Block exceeds original matrix dimensions");
+/* Se comporta igual que Matrix<DataType> en cuanto a aritmética matricial, pero accede a elementos utilizando
+el miembro Data de la matriz particionada, evitando tener que crear matrices adicionales por cada partición. Se busca evitar
+el trabajo Theta(n^2) de copiar matrices mencionado por el CLRS lo más posible.
+*/
+template <typename DataType>
+struct PartitionView {
+		Matrix<DataType>* parent_mat = nullptr;
+		std::pair<size_t, size_t> offset; // Posicion (0,0) de la submatriz dentro de la matriz padre.
+		size_t rows;
+		size_t cols;
+
+		template <typename MatrixType>
+		PartitionView(MatrixType& mat, size_t sub_rows, size_t sub_cols, std::pair<size_t, size_t> sub_offset) {
+			// Error checking
+			if (sub_rows < 1 || sub_cols < 1) {
+				std::cerr << "Can't create a size 0 partition" << std::endl;
+				exit(-1);
 			}
-			this->original_mat = &original_mat;
-			this->sub_rows = sub_rows;
-			this->sub_cols = sub_cols;
-			this->original_position = original_position;
+			if (sub_offset.first + sub_rows > mat.rows || sub_offset.second + sub_cols > mat.cols) {
+				std::cerr << "Partition exceeds matrix dimensions. Input: " 
+				<< sub_rows << ", " << sub_cols 
+				<< "; Matrix size: " 
+				<< mat.rows << ", " << mat.cols 
+				<< "; Offset pos: (" 
+				<< sub_offset.first << "," << sub_offset.second << ")" << std::endl;
+				exit(-1);
+			}
+
+			// Partición de otra PartitionView
+			if constexpr (std::is_same_v<MatrixType, PartitionView<DataType>>) {
+				this->parent_mat = mat.parent_mat;
+				this->offset.first = mat.offset.first + sub_offset.first;
+				this->offset.second = mat.offset.second + sub_offset.second;
+			}
+			// Partición de una Matrix
+			else if constexpr (std::is_same_v<MatrixType, Matrix<DataType>>) {
+				this->parent_mat = &mat;
+				this->offset.first = sub_offset.first;
+				this->offset.second = sub_offset.second;
+			}
+			this->rows = sub_rows;
+			this->cols = sub_cols;
 		}
 
-		// Acceso a elemento de matriz original, pero con original_position siendo el (0,0).
-		T& operator()(unsigned int row, unsigned int col) {
-			return (*original_mat)(original_position.first + row, original_position.second + col);
+		DataType& operator()(size_t row, size_t col) {
+			return (*parent_mat)(offset.first + row, offset.second + col);
 		}
 		// Debug
 		void print_contents() {
-			for (int i = 0; i < this->sub_rows; i++) {
-				for (int j = 0; j < this->sub_cols; j++) {
+			for (int i = 0; i < this->rows; i++) {
+				for (int j = 0; j < this->cols; j++) {
 					std::cout << (*this)(i,j) << ",\t";
 				}
 				std::cout << std::endl;
@@ -72,39 +93,47 @@ class ShallowPartition {
 };
 
 // Result = Mat_A + Mat_B
-template <typename T>
-void matrix_sum(Matrix<T>& destination, Matrix<T>& mat_A, Matrix<T>& mat_B) {
-	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols)
-		throw std::runtime_error("Sum error: Mismatch in matrix dimensions");
-	for (int i = 0; i < mat_A.rows; i++) {
-		for (int j = 0; j < mat_A.cols; j++) {
+template <typename MatC, typename MatA, typename MatB>
+void matrix_sum(MatC& destination, MatA& mat_A, MatB& mat_B) {
+	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols) {
+		std::cerr << ("Sum error: Mismatch in matrix dimensions");
+		exit(-1);
+	}
+	for (size_t i = 0; i < mat_A.rows; i++) {
+		for (size_t j = 0; j < mat_A.cols; j++) {
 			destination(i,j) = mat_A(i,j) + mat_B(i,j);
 		}
 	}
 }
 
 // Result = Mat_A - Mat_B
-template <typename T>
-void matrix_sub(Matrix<T>& destination, Matrix<T>& mat_A, Matrix<T>& mat_B) {
-	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols)
-		throw std::runtime_error("Subtraction error: Mismatch in matrix dimensions");
-	for (unsigned int i = 0; i < mat_A.rows; i++) {
-		for (unsigned int j = 0; j < mat_A.cols; j++) {
+template <typename MatC, typename MatA, typename MatB>
+void matrix_sub(MatC& destination, MatA& mat_A, MatB& mat_B) {
+	if (mat_A.rows != mat_B.rows || mat_A.cols != mat_B.cols || mat_A.rows != destination.rows || mat_A.cols != destination.cols) {
+		std::cerr << ("Subtraction error: Mismatch in matrix dimensions");
+		exit(-1);
+	}
+	for (size_t i = 0; i < mat_A.rows; i++) {
+		for (size_t j = 0; j < mat_A.cols; j++) {
 			destination(i,j) = mat_A(i,j) - mat_B(i,j);
 		}
 	}
 }
 
-template <typename T>
-void matrix_multRowCol(Matrix<T>& destination, Matrix<T>& A, Matrix<T>& B) {
-	if (A.cols != B.rows)
-		throw std::runtime_error("RowCol multiplication: Mismatch in matrix dimensions. Ensure A's cols == B's rows");
-	else if (destination.rows != A.rows || destination.cols != B.cols)
-		throw std::runtime_error("RowCol multiplication: Mismatch in expected dimensions of output variable.");
-	else {
+template <typename DataType, typename MatC, typename MatA, typename MatB>
+void matrix_multRowCol(MatC& destination, MatA& A, MatB& B) {
+	if (A.cols != B.rows) {
+		std::cerr << ("RowCol multiplication: Mismatch in matrix dimensions. Ensure A's cols == B's rows");
+		exit(-1);
+	}
+	else if (destination.rows != A.rows || destination.cols != B.cols) {
+		std::cerr << ("RowCol multiplication: Mismatch in expected dimensions of output variable.");
+		exit(-1);
+	}
+	 else {
 		for (size_t i = 0; i < destination.rows; i++) {
 			for (size_t j = 0; j < destination.cols; j++) {
-				T result = (T) 0;
+				DataType result = (DataType) 0;
 				for (size_t k = 0; k < A.cols; k++) {
 					result += A(i,k) * B(k,j);
 				}
@@ -114,24 +143,12 @@ void matrix_multRowCol(Matrix<T>& destination, Matrix<T>& A, Matrix<T>& B) {
 	}
 }
 
-// Copy a nxm block from the source partition into a destination matrix, and also specifying which position (i,j) to start copying on (left to right, top to bottom).
-// The (nxm) block must fulfill the following conditions:
-// 1. n < dest_part.rows
-// 2. m < dest_part.cols
-template <typename T>
-Matrix<T>& matrix_block_copy(Matrix<T>& dest, ShallowPartition<T>& source_part, std::pair<unsigned int, unsigned int> dest_position) {
-	auto dest_row = dest_position.first;
-	auto dest_col = dest_position.second;
-	if (source_part.sub_rows + dest_row > dest.rows || source_part.sub_cols + dest_col > dest.cols) 
-		throw std::runtime_error("Copy error: Destination cannot fit the source block");
-
-	// begin copy
-	for (unsigned int i = 0; i < source_part.sub_rows; i++) {
-		for (unsigned int j = 0; j < source_part.sub_cols; j++) {
-			dest(i+dest_row,j+dest_col) = source_part(i,j);
-		}
-	}
-	return dest;
-}
-
 #endif
+
+/*
+Crédito a:
+https://stackoverflow.com/questions/108318/how-can-i-test-whether-a-number-is-a-power-of-2 
+https://stackoverflow.com/questions/8627625/is-it-possible-to-make-function-that-will-accept-multiple-data-types-for-given-a (OOP me causó más problemas que templates)
+https://www.geeksforgeeks.org/cpp/stdis_same-template-in-c-with-examples/ para testear types específicos
+https://www.chriswirz.com/software/cpp-matrix-structure-and-access-pattern-considerations por el operator overload, que en realidad pudo haber sido una función
+*/

@@ -5,98 +5,93 @@
 #ifndef STRASSEN_H
 #define STRASSEN_H
 
-enum QuadPartition { q11, q12, q21, q22 };
-const std::vector<QuadPartition> quadrants = {q11,q12,q21,q22};
+enum Quadrant { q11, q12, q21, q22 };
+const std::vector<Quadrant> quadrants = {q11,q12,q21,q22};
 
-std::pair<unsigned int, unsigned int> get_quad_coords(QuadPartition q, unsigned int square_mat_size);
+std::pair<size_t, size_t> get_quad_coords(Quadrant q, size_t square_mat_size);
 
-template <typename T>
-// Computes AB = output
-void strassen_mult(Matrix<T>& output, Matrix<T>& A, Matrix<T>& B) {
-	if (A.rows != A.cols || (A.rows & ((A.rows)-1)) != 0
+/* Utilizamos templates para los types de las matrices A, B y C para que strassen_mult acepte tanto PartitionViews como Matrices
+En la práctica, MatA, MatB y MatC deben ser alguna permutación de los tipos Matrix y PartitionView
+*/
+template <typename DataType, typename MatA, typename MatB, typename MatC>
+void strassen_mult(MatC& output, MatA& A, MatB& B, size_t n0_threshold) {
+	// Error checking de dimensiones matriciales
+	if (A.rows != A.cols || (A.rows & ((A.rows)-1)) != 0 /* <==> if not potencia de 2*/
 		|| B.rows != B.cols || (B.rows & ((B.rows)-1)) != 0) {
 		std::cerr << "Invalid matrix multiplication parameters: Ensure A and B have dimensions n x n and that n is a power of 2." << std::endl;
-		throw	std::runtime_error("Invalid matrix multiplication parameters: Ensure A and B have dimensions n x n and that n is a power of 2.");
+		exit(-1);
 	}
-	unsigned int n = A.rows;
-
-	if (n == 1) { 
-		output(0,0) = A(0,0) * B(0,0);
+	size_t n = A.rows;
+	if (n <= n0_threshold) { 
+		matrix_multRowCol<DataType>(output,A,B);
 	}
 	else {
-		// Matrices de partición se crean como objetos nuevos
-		std::unique_ptr<Matrix<T>> A_parts[4];
-		std::unique_ptr<Matrix<T>> B_parts[4];
-		std::unique_ptr<Matrix<T>> output_parts[4];
-		std::pair<unsigned int, unsigned int> copy_destination = std::make_pair(0,0);
-		for (QuadPartition q : quadrants) {
-			A_parts[q] = std::make_unique<Matrix<T>>(n/2, n/2);
-			B_parts[q] = std::make_unique<Matrix<T>>(n/2, n/2);
-			output_parts[q] = std::make_unique<Matrix<T>>(n/2, n/2);
-			
-			// ShallowPartition selecciona el bloque, y matrix_block_copy lo copia a una matriz nueva n/2 x n/2
-			ShallowPartition<T> partA(A,n/2,n/2,get_quad_coords(q,n));  
-			matrix_block_copy(*(A_parts[q]),partA,copy_destination);
-			ShallowPartition<T> partB(B,n/2,n/2,get_quad_coords(q,n));  
-			matrix_block_copy(*(B_parts[q]),partB,copy_destination);
-		}
-		// Reserva y cálculo de matrices suma
-		std::unique_ptr<Matrix<T>> Smat[10];
-		for (int i = 0; i < 10; i++) {
-			Smat[i] = std::make_unique<Matrix<T>>(n/2,n/2);
-		}
-		// matrix_sum(destino, operando1, operando2)
-		matrix_sum(*(Smat[0]),*A_parts[QuadPartition::q11],*A_parts[QuadPartition::q22]);
-		matrix_sum(*(Smat[1]),*B_parts[QuadPartition::q11],*B_parts[QuadPartition::q22]);
-		matrix_sum(*(Smat[2]),*A_parts[QuadPartition::q21],*A_parts[QuadPartition::q22]);
-		matrix_sub(*(Smat[3]),*B_parts[QuadPartition::q12],*B_parts[QuadPartition::q22]);
-		matrix_sub(*(Smat[4]),*B_parts[QuadPartition::q21],*B_parts[QuadPartition::q11]);
-		matrix_sum(*(Smat[5]),*A_parts[QuadPartition::q11],*A_parts[QuadPartition::q12]);
-		matrix_sub(*(Smat[6]),*A_parts[QuadPartition::q21],*A_parts[QuadPartition::q11]);
-		matrix_sum(*(Smat[7]),*B_parts[QuadPartition::q11],*B_parts[QuadPartition::q12]);
-		matrix_sub(*(Smat[8]),*A_parts[QuadPartition::q12],*A_parts[QuadPartition::q22]);
-		matrix_sum(*(Smat[9]),*B_parts[QuadPartition::q21],*B_parts[QuadPartition::q22]);
+		// Matrices de partición no son objetos nuevos, si no que acceden a data de matriz original
+		// Cada partición construida recibe: el objeto particionado, las dimensiones, y las coordenadas de offset (la posición 0,0 de la partición respecto a la matriz original)
+		PartitionView<DataType> A11(A,n/2,n/2,get_quad_coords(q11,n)); PartitionView<DataType> A12(A,n/2,n/2,get_quad_coords(q12,n));
+		PartitionView<DataType> A21(A,n/2,n/2,get_quad_coords(q21,n)); PartitionView<DataType> A22(A,n/2,n/2,get_quad_coords(q22,n));
+		PartitionView<DataType> B11(B,n/2,n/2,get_quad_coords(q11,n)); PartitionView<DataType> B12(B,n/2,n/2,get_quad_coords(q12,n));
+		PartitionView<DataType> B21(B,n/2,n/2,get_quad_coords(q21,n)); PartitionView<DataType> B22(B,n/2,n/2,get_quad_coords(q22,n));
+		PartitionView<DataType> C11(output,n/2,n/2,get_quad_coords(q11,n)); PartitionView<DataType> C12(output,n/2,n/2,get_quad_coords(q12,n));
+		PartitionView<DataType> C21(output,n/2,n/2,get_quad_coords(q21,n)); PartitionView<DataType> C22(output,n/2,n/2,get_quad_coords(q22,n));
 
-		// M_1 ... M_7
-		std::unique_ptr<Matrix<T>> Mmat[7];
-		for (int i = 0; i < 7; i++) Mmat[i] = std::make_unique<Matrix<T>>(n/2,n/2);
-		strassen_mult(*Mmat[0],*(Smat[0]),*(Smat[1]));
-		strassen_mult(*Mmat[1],*(Smat[2]),*(B_parts[QuadPartition::q11]));
-		strassen_mult(*Mmat[2],*(A_parts[QuadPartition::q11]),*(Smat[3]));
-		strassen_mult(*Mmat[3],*(A_parts[QuadPartition::q22]),*(Smat[4]));
-		strassen_mult(*Mmat[4],*(Smat[5]),*(B_parts[QuadPartition::q22]));
-		strassen_mult(*Mmat[5],*(Smat[6]),*(Smat[7]));
-		strassen_mult(*Mmat[6],*(Smat[8]),*(Smat[9]));
+		// Arreglo para matrices M_1 ... M_7
+		Matrix<DataType>* Mmat[7];
+		for (int i = 0; i < 7; i++) Mmat[i] = new Matrix<DataType>(n/2,n/2);
+		// Matrices temporales para computar sumas
+		Matrix<DataType>* temp1 = new Matrix<DataType>(n/2,n/2);
+		Matrix<DataType>* temp2 = new Matrix<DataType>(n/2,n/2);
+		
+		// M_1 = (A11+A22)*(B11+B22)
+		matrix_sum(*temp1,A11,A22);
+		matrix_sum(*temp2,B11,B22);
+		strassen_mult<DataType>(*Mmat[0],*temp1,*temp2,n0_threshold);
 
-		// Cálculo de los elementos de C
+		// M_2
+		matrix_sum(*temp1,A21,A22);
+		strassen_mult<DataType>(*Mmat[1],*temp1,B11,n0_threshold);	
+		// M_3
+		matrix_sub(*temp1,B12,B22);
+		strassen_mult<DataType>(*Mmat[2],A11,*temp1,n0_threshold);
+		// M_4
+		matrix_sub(*temp1,B21,B11);
+		strassen_mult<DataType>(*Mmat[3],A22,*temp1,n0_threshold);
+		// M_5
+		matrix_sum(*temp1,A11,A12);
+		strassen_mult<DataType>(*Mmat[4],*temp1,B22,n0_threshold);
+		// M_6
+		matrix_sub(*temp1,A21,A11);
+		matrix_sum(*temp2,B11,B12);
+		strassen_mult<DataType>(*Mmat[5],*temp1,*temp2,n0_threshold);
+		// M_7
+		matrix_sub(*temp1,A12,A22);
+		matrix_sum(*temp2,B21,B22);
+		strassen_mult<DataType>(*Mmat[6],*temp1,*temp2,n0_threshold);
+
+		// Cálculo de los elementos de C. Como las particiones son vistas a la data de la matriz original, escribir en C11 escribe directamente a C.
 		// C_1,1
-		matrix_sum(*output_parts[q11], *Mmat[0], *Mmat[3]);
-		matrix_sub(*output_parts[q11], *output_parts[q11], *Mmat[4]);
-		matrix_sum(*output_parts[q11], *output_parts[q11], *Mmat[6]);
+		matrix_sum(C11, *Mmat[0], *Mmat[3]);
+		matrix_sub(C11, C11, *Mmat[4]);
+		matrix_sum(C11, C11, *Mmat[6]);
 		// C_1,2
-		matrix_sum(*output_parts[q12], *Mmat[2], *Mmat[4]);
+		matrix_sum(C12, *Mmat[2], *Mmat[4]);
 		// C_2,1
-		matrix_sum(*output_parts[q21], *Mmat[1], *Mmat[3]);
+		matrix_sum(C21, *Mmat[1], *Mmat[3]);
 		// C_2,2
-		matrix_sub(*output_parts[q22], *Mmat[0], *Mmat[1]);
-		matrix_sum(*output_parts[q22], *output_parts[q22], *Mmat[2]);
-		matrix_sum(*output_parts[q22], *output_parts[q22], *Mmat[5]);
-		// Combinación en C
-		for (unsigned int i = 0; i < n/2; i++) {
-			for (unsigned int j = 0; j < n/2; j++) {
-				output(i,j) = (*output_parts[q11])(i,j);
-				output(i,j+n/2) = (*output_parts[q12])(i,j);
-				output(i+n/2,j) = (*output_parts[q21])(i,j);
-				output(i+n/2,j+n/2) = (*output_parts[q22])(i,j);
-			}
-		}
+		matrix_sub(C22, *Mmat[0], *Mmat[1]);
+		matrix_sum(C22, C22, *Mmat[2]);
+		matrix_sum(C22, C22, *Mmat[5]);
 
-		// Cleanup de memoria se delega a los smart pointerssSSs
+		// Cleanup de memoria
+		for (int i = 0; i < 7; i++) delete Mmat[i];
+		delete temp1;
+		delete temp2;
 	}
 	// aqui se "retorna" output
 }
 
-std::pair<unsigned int, unsigned int> get_quad_coords(QuadPartition q, unsigned int square_mat_size) {
+/* Retorna las coordenadas de origen (offset) de la matriz partición cuadrada de su cuadrante respecto a la matriz padre */
+std::pair<size_t, size_t> get_quad_coords(Quadrant q, size_t square_mat_size) {
 	switch (q) {
 		case q11:
 			return std::make_pair(0,0);
@@ -107,7 +102,8 @@ std::pair<unsigned int, unsigned int> get_quad_coords(QuadPartition q, unsigned 
 		case q22:
 			return std::make_pair(square_mat_size/2, square_mat_size/2);
 		default:
-			throw std::runtime_error("Partition coordinate assignment error");
+			std::cerr << "Partition coordinate assignment error";
+			exit(-1);
 	};
 }
 
