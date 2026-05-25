@@ -4,14 +4,21 @@
 #include <iostream>
 #include <algorithm>
 #include <queue>
+#include <random>
 
 #include "matrix.h"
 #include "strassen.h"
 
-const std::vector<std::string> valid_operations = {"strassen","rowcol"};
+const std::vector<std::string> VALID_OPERATIONS = {"strassen","rowcol"};
 const size_t DEFAULT_N0 = 1;
+const long long RANDOM_INT64_BOUNDS[2] = {1,5};
 
 void error_msg_exit();
+
+// Para generar valores aleatorios en matriz prueba
+std::random_device rd;
+std::mt19937_64 rng(rd());
+std::uniform_int_distribution<std::int64_t> u_distr(RANDOM_INT64_BOUNDS[0],RANDOM_INT64_BOUNDS[1]);
 
 int main(int argc, char* argv[]) {
 	// Flags de opciones de input
@@ -31,7 +38,7 @@ int main(int argc, char* argv[]) {
 
 	// Validar tipo de multiplicacion
 	mult_type = args.front(); args.pop();
-	if (std::find(valid_operations.begin(), valid_operations.end(), mult_type) == valid_operations.end()) error_msg_exit();
+	if (std::find(VALID_OPERATIONS.begin(), VALID_OPERATIONS.end(), mult_type) == VALID_OPERATIONS.end()) error_msg_exit();
 
 	// Validar tamaño de matriz es 2^k
 	std::string matrix_size_arg = args.front(); args.pop();
@@ -52,20 +59,20 @@ int main(int argc, char* argv[]) {
 	}
 
 	/* Matrix creation */
-	Matrix<int> *A = new Matrix<int>(matrix_size,matrix_size);
-	Matrix<int> *B = new Matrix<int>(matrix_size,matrix_size);
-	Matrix<int> *C = new Matrix<int>(matrix_size,matrix_size);
+	Matrix<long long> *A = new Matrix<long long>(matrix_size,matrix_size);
+	Matrix<long long> *B = new Matrix<long long>(matrix_size,matrix_size);
+	Matrix<long long> *C = new Matrix<long long>(matrix_size,matrix_size);
 	for (int i = 0; i < A->rows; i++) {
 		for (int j = 0; j < A->cols; j++) {
 			// placeholder values, add varied tests later
-			(*A)(i,j) = i+j+1;
-			(*B)(i,j) = i+j+1;
+			(*A)(i,j) = u_distr(rng);
+			(*B)(i,j) = u_distr(rng);
 		}
 	}
 	if (mult_type == "strassen") {
-		strassen_mult<int>(*C,*A,*B,n0);
+		strassen_mult<long long>(*C,*A,*B,n0);
 	}
-	else if (mult_type == "rowcol") matrix_multRowCol<int>(*C,*A,*B);
+	else if (mult_type == "rowcol") matrix_multRowCol<long long>(*C,*A,*B);
 	if (print_flag) {
 		std::cout << "Matrix A: " << std::endl;
 		A->print_contents();
