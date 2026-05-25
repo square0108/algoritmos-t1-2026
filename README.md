@@ -4,7 +4,7 @@ El presente repositorio contiene una implementación básica del algoritmo de mu
 # Compilación
 
 ```
-g++ src/test.cpp -I include/ -o matrixmult
+g++ -std=c++17 src/test.cpp -I include/ -o matrixmult
 ```
 
 # Ejecución
