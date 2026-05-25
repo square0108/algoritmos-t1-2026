@@ -1,5 +1,5 @@
 # algoritmos-t1-2026
-Tarea 1 del curso Análisis de Algoritmos, Universidad de Concepción
+El presente repositorio contiene una implementación básica del algoritmo de multiplicación de matrices de Strassen, ofreciendo un threshold ajustable de tamaño de matriz donde el programa deja de ejecutar Strassen y procede a ejecutar multiplicación fila por columna.
 
 # Compilación
 
